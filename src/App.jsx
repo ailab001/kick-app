@@ -1,0 +1,772 @@
+import { useState, useEffect, useRef, useMemo } from "react";
+
+const C = {
+  bg: "#06060F", surface: "#0C0C1E", card: "#13132E",
+  accent: "#7C3AED", accentLight: "#A78BFA", accentDim: "#5B21B6",
+  orange: "#F59E0B", green: "#10B981", pink: "#EC4899",
+  red: "#EF4444", cyan: "#06B6D4", blue: "#3B82F6",
+  white: "#F1F0FF", text: "#C4C0E0", muted: "#6B6890",
+  border: "#1A1A3E",
+};
+
+const SPRITE_IMG = "basic_img.jpeg";
+const SPRITE_W = 868;
+const SPRITE_H = 1400;
+
+const SPRITE = {
+  base: { x: 0, y: 0, w: 868, h: 1400 },
+  hair: [],
+  eyes: [],
+  tops: [],
+  accessories: [],
+};
+
+const PRESETS = [
+  { name: "다크 시크", hair: 0, eyes: 0, tops: 0, accessory: 0 },
+  { name: "파스텔 팝", hair: 3, eyes: 2, tops: 1, accessory: 1 },
+  { name: "사이버 펑크", hair: 2, eyes: 4, tops: 3, accessory: 4 },
+];
+
+const MISSIONS = [
+  {
+    id: 1,
+    title: "AI는 어떻게 배울까?",
+    question: "넷플릭스가 내가 좋아할 영화를 어떻게 맞추는 걸까?",
+    blocks: ["내 시청 기록", "패턴 분석", "비슷한 영화 추천"],
+    answer: [0, 1, 2],
+    hint: "AI는 데이터에서 패턴을 찾아!",
+    reward: 50,
+  },
+  {
+    id: 2,
+    title: "조건문이란?",
+    question: "캐릭터가 '코인에 닿으면' 점수를 어떻게 올릴까?",
+    blocks: ["점수 올리기", "코인에 닿으면", "아니면 그냥 이동"],
+    answer: [1, 0, 2],
+    hint: "if → then → else 순서로 생각해봐!",
+    reward: 80,
+  },
+  {
+    id: 3,
+    title: "반복문 도전!",
+    question: "캐릭터가 3번 춤추게 하려면?",
+    blocks: ["춤추기", "3번 반복", "시작"],
+    answer: [2, 1, 0],
+    hint: "반복문은 같은 동작을 여러 번 실행해!",
+    reward: 100,
+  },
+];
+
+const MARKET_ITEMS = [
+  { id: "a1", name: "네온 고글", category: "accessory", price: 120, seller: "user_7a3", rating: 4.5, sales: 23 },
+  { id: "a2", name: "로켓 부스터", category: "effect", price: 200, seller: "user_f1c", rating: 4.8, sales: 41 },
+  { id: "a3", name: "별빛 망토", category: "costume", price: 80, seller: "user_3b9", rating: 4.2, sales: 15 },
+  { id: "a4", name: "코드 이펙트", category: "effect", price: 150, seller: "user_d2e", rating: 4.6, sales: 32 },
+  { id: "a5", name: "픽셀 왕관", category: "accessory", price: 300, seller: "user_a0f", rating: 4.9, sales: 67 },
+  { id: "a6", name: "홀로 날개", category: "costume", price: 180, seller: "user_c4d", rating: 4.3, sales: 19 },
+];
+
+const DATA_CATALOG = [
+  { id: "d1", name: "코딩 패턴 데이터셋", type: "behavior", records: 12400, quality: "A", price: 500, desc: "50회 이상 세션의 블록 코딩 시퀀스 및 수정 패턴" },
+  { id: "d2", name: "미적 선호도 맵", type: "preference", records: 8200, quality: "A", price: 350, desc: "캐릭터 커스터마이징 선택 패턴 및 색상 선호도" },
+  { id: "d3", name: "학습 곡선 로그", type: "progression", records: 5600, quality: "B", price: 200, desc: "미션 시도 시퀀스, 실패율, 힌트 사용 데이터" },
+  { id: "d4", name: "마켓 행동 세트", type: "economic", records: 3100, quality: "B", price: 280, desc: "구매 패턴, 가격 결정, 거래 빈도 분석" },
+];
+
+function createEventBus() {
+  const events = [];
+  const listeners = new Set();
+  const startTime = Date.now();
+
+  function emit(type, payload = {}) {
+    const event = { type, payload, ts: Date.now(), elapsed: Date.now() - startTime };
+    events.push(event);
+    listeners.forEach(fn => fn(event, events));
+  }
+
+  function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+  function getEvents() { return events; }
+
+  function getMetrics() {
+    const total = events.length;
+    const submissions = events.filter(e => e.type === "mission_submit");
+    const failures = submissions.filter(e => !e.payload.correct).length;
+    const failureRate = submissions.length ? failures / submissions.length : 0;
+    const charUpdates = events.filter(e => e.type === "char_update");
+    const uniqueParts = new Set(charUpdates.map(e => `${e.payload.category}_${e.payload.id}`)).size;
+    const diversity = charUpdates.length ? uniqueParts / charUpdates.length : 0;
+    const gaps = [];
+    for (let i = 1; i < events.length; i++) gaps.push(events[i].ts - events[i - 1].ts);
+    const medianGap = gaps.length ? gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] : 0;
+    const sessionLength = events.length ? (events[events.length - 1].ts - events[0].ts) / 1000 : 0;
+    const eventTypes = new Set(events.map(e => e.type)).size;
+    const diversityScore = total ? eventTypes / Math.min(total, 20) : 0;
+    const revisions = events.filter(e => e.type === "block_remove").length;
+    const depth = submissions.length ? revisions / Math.max(submissions.length, 1) : 0;
+    const completeness = Math.min(1, total / 15);
+    const consistency = events.every((e, i) => i === 0 || e.ts >= events[i - 1].ts) ? 1 : 0.5;
+    const qualityScore = Math.min(100, Math.round(completeness * 30 + consistency * 20 + diversityScore * 25 + Math.min(depth, 1) * 25));
+    return { total, failureRate, diversity, medianGap, sessionLength, qualityScore, completeness, consistency, diversityScore, depth };
+  }
+
+  return { emit, subscribe, getEvents, getMetrics };
+}
+
+function SpriteCrop({ region, width, height, style = {} }) {
+  const scale = Math.min(width / region.w, height / region.h);
+  const cw = Math.round(region.w * scale);
+  const ch = Math.round(region.h * scale);
+  return (
+    <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", ...style }}>
+      <div style={{
+        width: cw, height: ch, flexShrink: 0,
+        backgroundImage: `url(${SPRITE_IMG})`,
+        backgroundPosition: `-${Math.round(region.x * scale)}px -${Math.round(region.y * scale)}px`,
+        backgroundSize: `${Math.round(SPRITE_W * scale)}px ${Math.round(SPRITE_H * scale)}px`,
+        backgroundRepeat: "no-repeat",
+      }} />
+    </div>
+  );
+}
+
+function SpriteThumb({ region, size = 60, selected, onClick, label }) {
+  return (
+    <button onClick={onClick} style={{
+      width: size, minHeight: size + (label ? 16 : 0), borderRadius: 10, overflow: "hidden",
+      border: selected ? `2px solid ${C.accentLight}` : `1.5px solid ${C.border}`,
+      background: selected ? `${C.accent}25` : C.card,
+      cursor: "pointer", padding: 0, display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", gap: 2, flexShrink: 0,
+    }}>
+      <SpriteCrop region={region} width={size - 4} height={size - 4} style={{ borderRadius: 8 }} />
+      {label && <div style={{ fontSize: 9, color: selected ? C.accentLight : C.muted, fontWeight: 600, padding: "0 2px 3px" }}>{label}</div>}
+    </button>
+  );
+}
+
+function CharacterTab({ char, setChar, onStartMission, bus }) {
+  const updatePart = (category, idx) => {
+    setChar(c => ({ ...c, [category]: idx }));
+    const spriteList = SPRITE[category === "accessory" ? "accessories" : category];
+    const id = spriteList[idx]?.id ?? idx;
+    bus.emit("char_update", { category, id, index: idx });
+  };
+
+  const applyPreset = (preset) => {
+    setChar({ hair: preset.hair, eyes: preset.eyes, tops: preset.tops, accessory: preset.accessory });
+    bus.emit("char_update", { preset: preset.name, bulk: true });
+  };
+
+  const equipped = [
+    char.hair !== null && SPRITE.hair[char.hair] && { cat: "헤어", sprite: SPRITE.hair[char.hair] },
+    char.eyes !== null && SPRITE.eyes[char.eyes] && { cat: "눈", sprite: SPRITE.eyes[char.eyes] },
+    char.tops !== null && SPRITE.tops[char.tops] && { cat: "상의", sprite: SPRITE.tops[char.tops] },
+    char.accessory > 0 && SPRITE.accessories[char.accessory] && { cat: "악세", sprite: SPRITE.accessories[char.accessory] },
+  ].filter(Boolean);
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ display: "flex", gap: 24, marginBottom: 24, alignItems: "stretch" }}>
+        <div style={{ flexShrink: 0, position: "relative" }}>
+          <div style={{
+            borderRadius: 16, overflow: "hidden",
+            border: `1px solid ${C.border}`,
+            background: `radial-gradient(ellipse at 50% 80%, ${C.accent}15, ${C.bg})`,
+          }}>
+            <img src="basic_img.jpeg" alt="character" style={{ width: 200, height: 320, objectFit: "cover", objectPosition: "top" }} />
+          </div>
+          <div style={{
+            position: "absolute", bottom: -8, left: "50%", transform: "translateX(-50%)",
+            background: `linear-gradient(135deg, ${C.accent}, ${C.accentDim})`,
+            borderRadius: 20, padding: "4px 14px", fontSize: 10, fontWeight: 700,
+            color: C.white, whiteSpace: "nowrap", letterSpacing: 0.5,
+          }}>기본 캐릭터</div>
+        </div>
+
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, overflow: "hidden" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4, letterSpacing: -0.5 }}>캐릭터 커스터마이징</div>
+            <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+              모든 선택이 행동 데이터로 기록됩니다. 우측 패널에서 실시간 확인하세요.
+            </div>
+          </div>
+
+          {[
+            { key: "hair", label: "헤어스타일", items: SPRITE.hair, size: 62 },
+            { key: "eyes", label: "눈", items: SPRITE.eyes, size: 54 },
+            { key: "tops", label: "상의", items: SPRITE.tops, size: 58 },
+          ].map(({ key, label, items, size }) => (
+            <div key={key}>
+              <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, fontWeight: 700, letterSpacing: 1.5 }}>{label}</div>
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+                {items.map((item, i) => (
+                  <SpriteThumb key={item.id} region={item} size={size} selected={char[key] === i} onClick={() => updatePart(key, i)} label={item.label} />
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, fontWeight: 700, letterSpacing: 1.5 }}>악세서리</div>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+              {SPRITE.accessories.map((a, i) => (
+                <SpriteThumb key={a.id} region={a} size={54} selected={char.accessory === i} onClick={() => updatePart("accessory", i)} label={a.label} />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, fontWeight: 700, letterSpacing: 1.5 }}>프리셋</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {PRESETS.map(p => (
+                <button key={p.name} onClick={() => applyPreset(p)} style={{
+                  padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+                  border: `1px solid ${C.accent}44`, background: `${C.accent}12`,
+                  color: C.accentLight, cursor: "pointer",
+                }}>{p.name}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {equipped.length > 0 && (
+        <div style={{
+          display: "flex", gap: 8, marginBottom: 16, padding: "10px 14px",
+          background: C.card, borderRadius: 12, border: `1px solid ${C.border}`,
+          alignItems: "center", flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>장착 중</span>
+          {equipped.map(e => (
+            <div key={e.cat} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: `${C.accent}15`, borderRadius: 8, padding: "3px 8px 3px 3px",
+              border: `1px solid ${C.accent}33`,
+            }}>
+              <SpriteCrop region={e.sprite} width={24} height={24} style={{ borderRadius: 4 }} />
+              <span style={{ fontSize: 10, color: C.accentLight, fontWeight: 600 }}>{e.cat}: {e.sprite.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button onClick={onStartMission} style={{
+        width: "100%", padding: 14, borderRadius: 10, border: "none",
+        background: `linear-gradient(135deg, ${C.accent}, ${C.accentDim})`,
+        color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer",
+      }}>미션 시작하기 →</button>
+    </div>
+  );
+}
+
+function BlockMission({ mission, onComplete, bus }) {
+  const [slots, setSlots] = useState([null, null, null]);
+  const [available, setAvailable] = useState([0, 1, 2]);
+  const [result, setResult] = useState(null);
+  const blockColors = [C.accent, C.orange, C.green];
+
+  const place = (si, bi) => {
+    if (slots[si] !== null) return;
+    const n = [...slots]; n[si] = bi; setSlots(n);
+    setAvailable(a => a.filter(i => i !== bi));
+    bus.emit("block_place", { mission: mission.id, slot: si, block: bi });
+  };
+
+  const remove = (si) => {
+    const b = slots[si]; if (b === null) return;
+    const n = [...slots]; n[si] = null; setSlots(n);
+    setAvailable(a => [...a, b].sort());
+    bus.emit("block_remove", { mission: mission.id, slot: si });
+  };
+
+  const check = () => {
+    const correct = slots.every((s, i) => s === mission.answer[i]);
+    setResult(correct ? "correct" : "wrong");
+    bus.emit("mission_submit", { mission_id: mission.id, correct, attempt: 1, slots });
+    if (correct) setTimeout(() => onComplete(mission.reward), 800);
+  };
+
+  const reset = () => { setSlots([null, null, null]); setAvailable([0, 1, 2]); setResult(null); };
+
+  return (
+    <div>
+      <div style={{ background: C.surface, borderRadius: 12, padding: 14, marginBottom: 14, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 15, color: C.white, fontWeight: 600, lineHeight: 1.5 }}>{mission.question}</div>
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} onClick={() => remove(i)} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, cursor: slots[i] !== null ? "pointer" : "default" }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: C.card, border: `2px solid ${C.muted}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.muted, flexShrink: 0 }}>{i + 1}</div>
+            <div style={{ flex: 1, minHeight: 40, borderRadius: 8, background: slots[i] !== null ? `${blockColors[slots[i]]}18` : C.card, border: `2px dashed ${slots[i] !== null ? blockColors[slots[i]] : C.border}`, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 13, color: slots[i] !== null ? C.white : C.muted, fontWeight: slots[i] !== null ? 600 : 400 }}>
+              {slots[i] !== null ? mission.blocks[slots[i]] : "블록을 선택하세요"}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+        {mission.blocks.map((block, idx) => available.includes(idx) && (
+          <div key={idx} style={{ display: "flex", gap: 4 }}>
+            {[0, 1, 2].map(si => slots[si] === null && (
+              <button key={si} onClick={() => place(si, idx)} style={{ width: 36, padding: "8px 0", borderRadius: 6, background: `${blockColors[idx]}18`, border: `1px solid ${blockColors[idx]}55`, color: C.text, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{si + 1}</button>
+            ))}
+            <div style={{ flex: 1, padding: "8px 12px", borderRadius: 6, background: `${blockColors[idx]}18`, border: `1px solid ${blockColors[idx]}55`, color: C.white, fontSize: 13, fontWeight: 600 }}>{block}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: `${C.orange}12`, border: `1px solid ${C.orange}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12, color: C.orange }}>{mission.hint}</div>
+      {result && (
+        <div style={{ background: result === "correct" ? `${C.green}18` : `${C.pink}18`, border: `1px solid ${result === "correct" ? C.green : C.pink}`, borderRadius: 8, padding: 12, marginBottom: 14, textAlign: "center", fontSize: 14, fontWeight: 700, color: result === "correct" ? C.green : C.pink }}>
+          {result === "correct" ? `+${mission.reward} XP` : "다시 시도해보세요!"}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        {slots.every(s => s !== null) && result !== "correct" && (
+          <button onClick={check} style={{ flex: 2, padding: 10, borderRadius: 8, border: "none", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>확인</button>
+        )}
+        <button onClick={reset} style={{ flex: 1, padding: 10, borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>초기화</button>
+      </div>
+    </div>
+  );
+}
+
+function MissionTab({ missionIdx, completed, onComplete, onGoMarket, bus }) {
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+        {MISSIONS.map((m, i) => (
+          <div key={m.id} style={{ flex: 1, height: 4, borderRadius: 2, background: completed.includes(m.id) ? C.green : i === missionIdx ? C.accent : C.card }} />
+        ))}
+      </div>
+      {missionIdx < MISSIONS.length ? (
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+          <div style={{ flexShrink: 0, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}` }}>
+            <SpriteCrop region={SPRITE.base} width={50} height={80} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: C.accentLight, fontWeight: 700, marginBottom: 4, letterSpacing: 1 }}>미션 {missionIdx + 1}/{MISSIONS.length}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>{MISSIONS[missionIdx].title}</div>
+            <BlockMission key={missionIdx} mission={MISSIONS[missionIdx]} onComplete={onComplete} bus={bus} />
+          </div>
+        </div>
+      ) : (
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 42, marginBottom: 12 }}>🎉</div>
+          <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>모든 미션 완료!</div>
+          <div style={{ fontSize: 13, color: C.text, marginBottom: 20 }}>에셋 마켓을 확인해보세요</div>
+          <button onClick={onGoMarket} style={{ padding: "12px 28px", borderRadius: 8, border: "none", background: C.accent, color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>마켓 가기 →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarketTab({ bus, points, onPurchase }) {
+  const [filter, setFilter] = useState("all");
+  const catLabels = { all: "전체", accessory: "악세서리", costume: "코스튬", effect: "이펙트" };
+  const categories = Object.keys(catLabels);
+  const filtered = filter === "all" ? MARKET_ITEMS : MARKET_ITEMS.filter(i => i.category === filter);
+
+  const buy = (item) => {
+    if (points < item.price) return;
+    onPurchase(item);
+    bus.emit("asset_purchase", { asset_id: item.id, price: item.price, seller_id: item.seller });
+  };
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>C2C 마켓</div>
+          <div style={{ fontSize: 12, color: C.text, marginTop: 4 }}>유저 제작 에셋 거래소</div>
+        </div>
+        <div style={{ background: `${C.orange}18`, border: `1px solid ${C.orange}44`, borderRadius: 8, padding: "6px 14px" }}>
+          <span style={{ fontSize: 11, color: C.muted }}>잔액 </span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: C.orange }}>{points}P</span>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {categories.map(cat => (
+          <button key={cat} onClick={() => { setFilter(cat); bus.emit("market_filter", { category: cat }); }} style={{
+            padding: "6px 14px", borderRadius: 20, border: `1px solid ${filter === cat ? C.accent : C.border}`,
+            background: filter === cat ? `${C.accent}22` : "transparent",
+            color: filter === cat ? C.accentLight : C.muted, fontSize: 12, cursor: "pointer", fontWeight: 600,
+          }}>{catLabels[cat]}</button>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {filtered.map(item => (
+          <div key={item.id} style={{ background: C.card, borderRadius: 12, padding: 14, border: `1px solid ${C.border}` }}>
+            <div style={{ width: "100%", height: 70, borderRadius: 8, marginBottom: 10, background: `linear-gradient(135deg, ${C.accent}22, ${C.pink}22)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>
+              {item.category === "accessory" ? "🥽" : item.category === "costume" ? "🧥" : "✨"}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.white, marginBottom: 4 }}>{item.name}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: C.muted }}>{item.seller}</span>
+              <span style={{ fontSize: 11, color: C.orange }}>{"★".repeat(Math.floor(item.rating))} {item.rating}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: C.accentLight }}>{item.price}P</span>
+              <button onClick={() => buy(item)} disabled={points < item.price} style={{
+                padding: "5px 12px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                background: points >= item.price ? C.accent : C.border,
+                color: points >= item.price ? C.white : C.muted,
+                opacity: points >= item.price ? 1 : 0.5,
+              }}>구매</button>
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{item.sales}개 판매</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContributionTab({ metrics }) {
+  const m = metrics;
+  const score = useMemo(() => {
+    const dq = m.qualityScore / 100;
+    const mv = Math.min(1, m.total / 30);
+    const mi = Math.min(1, (1 - m.failureRate) * m.diversity);
+    const co = Math.min(1, m.sessionLength / 120);
+    return Math.round((0.3 * dq + 0.25 * mv + 0.25 * mi + 0.2 * co) * 1000);
+  }, [m]);
+  const settlement = Math.round(score * 0.15);
+  const bars = [
+    { label: "데이터 품질", value: m.qualityScore, color: C.green },
+    { label: "활동 다양성", value: Math.round(m.diversityScore * 100), color: C.cyan },
+    { label: "학습 기여도", value: Math.round((1 - m.failureRate) * 100), color: C.accent },
+    { label: "지속성", value: Math.round(Math.min(1, m.sessionLength / 120) * 100), color: C.orange },
+  ];
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>기여도 증명 (PoC)</div>
+      <div style={{ fontSize: 12, color: C.text, marginBottom: 20 }}>데이터 기여도 스코어 대시보드</div>
+      <div style={{ background: `linear-gradient(135deg, ${C.accent}22, ${C.pink}15)`, border: `1px solid ${C.accent}44`, borderRadius: 14, padding: 20, marginBottom: 16, textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 4, letterSpacing: 1 }}>기여도 스코어</div>
+        <div style={{ fontSize: 42, fontWeight: 800, color: C.white, lineHeight: 1 }}>{score}</div>
+        <div style={{ fontSize: 12, color: C.accentLight, marginTop: 6 }}>예상 정산: {settlement}P</div>
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 10, fontWeight: 600, letterSpacing: 1 }}>세부 분석</div>
+        {bars.map(b => (
+          <div key={b.label} style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: C.text }}>{b.label}</span>
+              <span style={{ color: b.color, fontWeight: 700 }}>{b.value}%</span>
+            </div>
+            <div style={{ height: 6, background: C.surface, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 3, background: b.color, width: `${b.value}%`, transition: "width 0.6s ease" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: C.card, borderRadius: 12, padding: 14, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 10, fontWeight: 600, letterSpacing: 1 }}>정산 공식</div>
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: C.text, lineHeight: 1.8 }}>
+          <span style={{ color: C.accentLight }}>score</span> = w1*quality + w2*market + w3*impact + w4*consistency<br />
+          <span style={{ color: C.orange }}>settlement</span> = pool * (score / total_scores)
+        </div>
+      </div>
+      <div style={{ marginTop: 14, background: `${C.green}10`, border: `1px solid ${C.green}33`, borderRadius: 10, padding: 12, fontSize: 12, color: C.green, lineHeight: 1.6 }}>
+        정산 함수는 결정론적 순수 함수로 작성되어 동일 입력에 항상 동일 결과를 보장합니다.
+      </div>
+    </div>
+  );
+}
+
+function CreatorDashboard({ metrics, events, points }) {
+  const totalSales = events.filter(e => e.type === "asset_purchase").length;
+  const totalRevenue = events.filter(e => e.type === "asset_purchase").reduce((s, e) => s + (e.payload.price || 0), 0);
+  const weeklyData = useMemo(() =>
+    ["월", "화", "수", "목", "금", "토", "일"].map(d => ({ day: d, events: Math.floor(Math.random() * 30 + metrics.total * 0.1) })),
+    [metrics.total]
+  );
+  const maxEvents = Math.max(...weeklyData.map(d => d.events), 1);
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>크리에이터 대시보드</div>
+      <div style={{ fontSize: 12, color: C.text, marginBottom: 20 }}>수익, 기여도, 데이터 활용 현황</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
+        {[
+          { label: "총 수익", value: `${totalRevenue + points}P`, color: C.orange },
+          { label: "판매 에셋", value: totalSales, color: C.green },
+          { label: "PoC 점수", value: metrics.qualityScore, color: C.accent },
+        ].map(s => (
+          <div key={s.label} style={{ background: C.card, borderRadius: 12, padding: 16, border: `1px solid ${C.border}`, textAlign: "center" }}>
+            <div style={{ fontSize: 10, color: C.muted, letterSpacing: 1, marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: C.card, borderRadius: 12, padding: 16, border: `1px solid ${C.border}`, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 14, fontWeight: 600, letterSpacing: 1 }}>주간 활동</div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120 }}>
+          {weeklyData.map(d => (
+            <div key={d.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ fontSize: 9, color: C.accentLight, fontWeight: 600 }}>{d.events}</div>
+              <div style={{ width: "100%", borderRadius: 4, height: `${(d.events / maxEvents) * 80}px`, minHeight: 4, background: `linear-gradient(180deg, ${C.accentLight}, ${C.accent})` }} />
+              <div style={{ fontSize: 10, color: C.muted }}>{d.day}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ background: C.card, borderRadius: 12, padding: 16, border: `1px solid ${C.border}`, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 12, fontWeight: 600, letterSpacing: 1 }}>데이터 활용 이력</div>
+        {[
+          { model: "DDA v0.3", usage: "난이도 조절", date: "2026-07-15", impact: "+2.1%" },
+          { model: "이탈 예측 v0.1", usage: "피처 추출", date: "2026-08-02", impact: "+0.8%" },
+          { model: "스타일 추천", usage: "선호도 클러스터링", date: "2026-08-20", impact: "+1.5%" },
+        ].map((u, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: i < 2 ? `1px solid ${C.border}` : "none" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.white }}>{u.model}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{u.usage} | {u.date}</div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>{u.impact}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: `${C.cyan}10`, border: `1px solid ${C.cyan}33`, borderRadius: 10, padding: 12, fontSize: 12, color: C.cyan, lineHeight: 1.6 }}>
+        나의 행동 데이터가 3개 AI 모델 개선에 기여했습니다. 모든 데이터는 비식별 처리(단방향 해시) 후 활용됩니다.
+      </div>
+    </div>
+  );
+}
+
+function DataCatalog({ bus }) {
+  const [selectedType, setSelectedType] = useState("all");
+  const typeLabels = { all: "전체", behavior: "행동", preference: "선호도", progression: "성장", economic: "경제" };
+  const types = Object.keys(typeLabels);
+  const filtered = selectedType === "all" ? DATA_CATALOG : DATA_CATALOG.filter(d => d.type === selectedType);
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>데이터 카탈로그</div>
+      <div style={{ fontSize: 12, color: C.text, marginBottom: 20 }}>비식별 행동 데이터셋 — B2B 라이선싱 대상</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {types.map(t => (
+          <button key={t} onClick={() => { setSelectedType(t); bus.emit("catalog_filter", { type: t }); }} style={{
+            padding: "6px 14px", borderRadius: 20, border: `1px solid ${selectedType === t ? C.cyan : C.border}`,
+            background: selectedType === t ? `${C.cyan}22` : "transparent",
+            color: selectedType === t ? C.cyan : C.muted, fontSize: 12, cursor: "pointer", fontWeight: 600,
+          }}>{typeLabels[t]}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filtered.map(item => (
+          <div key={item.id} style={{ background: C.card, borderRadius: 12, padding: 16, border: `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.white, marginBottom: 4 }}>{item.name}</div>
+                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{item.desc}</div>
+              </div>
+              <div style={{ background: item.quality === "A" ? `${C.green}22` : `${C.orange}22`, border: `1px solid ${item.quality === "A" ? C.green : C.orange}44`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: item.quality === "A" ? C.green : C.orange, flexShrink: 0 }}>
+                등급 {item.quality}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: C.muted }}><span style={{ color: C.cyan, fontWeight: 600 }}>{item.records.toLocaleString()}</span> 건</div>
+              <div style={{ fontSize: 11, color: C.muted }}>유형: <span style={{ color: C.accentLight }}>{typeLabels[item.type]}</span></div>
+              <div style={{ flex: 1 }} />
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.orange }}>{item.price}P</div>
+              <button onClick={() => bus.emit("catalog_view", { dataset_id: item.id })} style={{
+                padding: "5px 14px", borderRadius: 6, border: `1px solid ${C.cyan}55`,
+                background: `${C.cyan}15`, color: C.cyan, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              }}>미리보기</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 16, background: C.card, borderRadius: 12, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 10, fontWeight: 600, letterSpacing: 1 }}>데이터 스키마 (Event Sourcing)</div>
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: C.text, lineHeight: 1.8, background: C.surface, borderRadius: 8, padding: 12 }}>
+          {"{ event_id, user_id(hashed), session_id,"}<br />
+          {"  event_type, payload, client_ts, server_ts,"}<br />
+          {"  stage, mission_id }"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DataPanel({ events, metrics }) {
+  const scrollRef = useRef(null);
+  const recent = events.slice(-12).reverse();
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [events.length]);
+  const typeColor = (type) => {
+    if (type.startsWith("char")) return C.pink;
+    if (type.startsWith("block") || type.startsWith("mission")) return C.accent;
+    if (type.startsWith("market") || type.startsWith("asset")) return C.orange;
+    return C.cyan;
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div style={{ padding: "16px 16px 12px" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.white, marginBottom: 12 }}>데이터 파이프라인</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
+          {[
+            { label: "이벤트", value: metrics.total, color: C.accent },
+            { label: "품질", value: `${metrics.qualityScore}%`, color: C.green },
+            { label: "세션", value: `${Math.round(metrics.sessionLength)}s`, color: C.cyan },
+            { label: "실패율", value: `${Math.round(metrics.failureRate * 100)}%`, color: C.red },
+          ].map(s => (
+            <div key={s.label} style={{ background: C.surface, borderRadius: 8, padding: "8px 10px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 9, color: C.muted, letterSpacing: 1, marginBottom: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 600, letterSpacing: 1 }}>피처</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+          {[
+            { k: "diversity", v: metrics.diversity.toFixed(2) },
+            { k: "median_gap", v: `${metrics.medianGap}ms` },
+            { k: "depth", v: metrics.depth.toFixed(2) },
+            { k: "completeness", v: metrics.completeness.toFixed(2) },
+          ].map(f => (
+            <div key={f.k} style={{ background: `${C.accent}15`, border: `1px solid ${C.accent}33`, borderRadius: 4, padding: "3px 7px", fontSize: 10, color: C.accentLight, fontFamily: "monospace" }}>{f.k}: {f.v}</div>
+          ))}
+        </div>
+      </div>
+      <div style={{ flex: 1, overflow: "hidden", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: "10px 16px 4px" }}>
+          <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, letterSpacing: 1 }}>이벤트 스트림</div>
+        </div>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "0 16px 16px", maxHeight: "calc(100% - 30px)" }}>
+          {recent.map((e, i) => (
+            <div key={e.ts + i} style={{ background: C.surface, borderRadius: 6, padding: "6px 10px", marginBottom: 4, fontSize: 10, fontFamily: "monospace", borderLeft: `2px solid ${typeColor(e.type)}` }}>
+              <div style={{ color: typeColor(e.type), fontWeight: 700, marginBottom: 2 }}>{e.type}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{JSON.stringify(e.payload)}</div>
+            </div>
+          ))}
+          {events.length === 0 && <div style={{ textAlign: "center", color: C.muted, padding: 20, fontSize: 12 }}>상호작용하면 실시간 데이터가 여기에 표시됩니다</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const NAV_ITEMS = [
+  { id: "character", icon: "👤", label: "캐릭터" },
+  { id: "mission", icon: "🧩", label: "미션" },
+  { id: "market", icon: "🏪", label: "마켓" },
+  { id: "contribution", icon: "📊", label: "기여도" },
+  { id: "creator", icon: "🎨", label: "크리에이터" },
+  { id: "catalog", icon: "💾", label: "데이터" },
+];
+
+export default function KickApp() {
+  const busRef = useRef(null);
+  if (!busRef.current) busRef.current = createEventBus();
+  const bus = busRef.current;
+
+  const [tab, setTab] = useState("character");
+  const [char, setChar] = useState({ hair: 0, eyes: 0, tops: 0, accessory: 0 });
+  const [xp, setXp] = useState(0);
+  const [points, setPoints] = useState(500);
+  const [missionIdx, setMissionIdx] = useState(0);
+  const [completed, setCompleted] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [metrics, setMetrics] = useState(bus.getMetrics());
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => bus.subscribe(() => { setEvents([...bus.getEvents()]); setMetrics(bus.getMetrics()); }), [bus]);
+  useEffect(() => { bus.emit("session_start", { device: "desktop", viewport: "1280x800" }); }, []);
+
+  const completeMission = (reward) => {
+    setXp(x => x + reward);
+    setPoints(p => p + reward);
+    setCompleted(c => [...c, MISSIONS[missionIdx].id]);
+    bus.emit("mission_complete", { mission_id: MISSIONS[missionIdx].id, reward });
+    showToast(`+${reward} XP`);
+    if (missionIdx < MISSIONS.length - 1) setTimeout(() => setMissionIdx(i => i + 1), 800);
+    else setTimeout(() => setMissionIdx(MISSIONS.length), 800);
+  };
+
+  const purchaseItem = (item) => { setPoints(p => p - item.price); showToast(`${item.name} 구매 완료!`); };
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 1500); };
+  const switchTab = (id) => { setTab(id); bus.emit("tab_switch", { from: tab, to: id }); };
+  const level = Math.floor(xp / 100) + 1;
+
+  const renderContent = () => {
+    switch (tab) {
+      case "character": return <CharacterTab char={char} setChar={setChar} onStartMission={() => switchTab("mission")} bus={bus} />;
+      case "mission": return <MissionTab missionIdx={missionIdx} completed={completed} onComplete={completeMission} onGoMarket={() => switchTab("market")} bus={bus} />;
+      case "market": return <MarketTab bus={bus} points={points} onPurchase={purchaseItem} />;
+      case "contribution": return <ContributionTab metrics={metrics} />;
+      case "creator": return <CreatorDashboard metrics={metrics} events={events} points={points} />;
+      case "catalog": return <DataCatalog bus={bus} />;
+      default: return null;
+    }
+  };
+
+  return (
+    <div style={{ height: "100vh", width: "100vw", background: C.bg, color: C.white, fontFamily: "'Outfit', 'Noto Sans KR', sans-serif", display: "flex", overflow: "hidden", minWidth: 600 }}>
+      <div style={{ width: 68, background: C.surface, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 16, gap: 2, flexShrink: 0, minHeight: 0 }}>
+        <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 14, color: C.accentLight, letterSpacing: -1 }}>K</div>
+        {NAV_ITEMS.map(n => (
+          <button key={n.id} onClick={() => switchTab(n.id)} style={{
+            width: 50, height: 50, borderRadius: 12, border: "none",
+            background: tab === n.id ? `${C.accent}22` : "transparent",
+            cursor: "pointer", display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 1,
+          }}>
+            <span style={{ fontSize: 17 }}>{n.icon}</span>
+            <span style={{ fontSize: 8, color: tab === n.id ? C.accentLight : C.muted, fontWeight: 600, whiteSpace: "nowrap" }}>{n.label}</span>
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div style={{ marginBottom: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: C.muted, marginBottom: 2 }}>Lv.{level}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.accentLight }}>{xp}xp</div>
+          <div style={{ fontSize: 10, color: C.orange, marginTop: 2 }}>{points}P</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ flexShrink: 0, padding: "12px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: `${C.surface}DD`, backdropFilter: "blur(12px)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 900, color: C.accentLight, letterSpacing: -0.5 }}>Kick</span>
+            <span style={{ color: C.muted, fontSize: 11 }}>AI Education • Data Marketplace</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>ailab.jimin@gmail.com</span>
+            <div style={{ width: 100, height: 3, background: C.card, borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 2, width: `${xp % 100}%`, background: `linear-gradient(90deg, ${C.accent}, ${C.accentLight})`, transition: "width 0.4s ease" }} />
+            </div>
+          </div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}>
+          <div style={{ maxWidth: 680, width: "100%", margin: "0 auto" }}>{renderContent()}</div>
+        </div>
+      </div>
+
+      <div style={{ width: 260, background: C.surface, borderLeft: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0, minHeight: 0, overflow: "hidden" }}>
+        <DataPanel events={events} metrics={metrics} />
+      </div>
+
+      {toast && (
+        <div style={{
+          position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)",
+          background: `${C.accent}EE`, backdropFilter: "blur(8px)", borderRadius: 8,
+          padding: "8px 20px", fontSize: 13, fontWeight: 700, color: C.white, zIndex: 50,
+        }}>{toast}</div>
+      )}
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Noto+Sans+KR:wght@400;600;700;800&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body, #root { height: 100%; width: 100%; }
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-thumb { background: ${C.accent}44; border-radius: 2px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        button { transition: all 0.15s ease; font-family: inherit; }
+        button:active { transform: scale(0.97); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+    </div>
+  );
+}
