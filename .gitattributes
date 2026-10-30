@@ -1,0 +1,6 @@
+# JavaScript/React를 주 언어로 인식
+*.jsx linguist-language=JavaScript
+*.js linguist-language=JavaScript
+
+# prototype.html은 documentation으로 처리
+prototype.html linguist-documentation

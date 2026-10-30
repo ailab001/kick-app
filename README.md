@@ -70,7 +70,7 @@ npm run preview
 open prototype.html
 ```
 
-**주의**: `prototype.html`은 독립 실행 가능한 프로토타입입니다. `basic_img.jpeg` 파일이 같은 디렉토리에 있어야 합니다.
+**주의**: `prototype.html`은 독립 실행 가능한 프로토타입입니다. `public/basic_img.jpeg` 파일이 필요합니다.
 
 ---
 
@@ -90,12 +90,10 @@ kick-app/
 ├── src/
 │   ├── App.jsx           # 메인 애플리케이션
 │   ├── main.jsx          # 엔트리 포인트
-│   ├── App.css           # 스타일
-│   └── basic_img.jpeg    # 캐릭터 이미지
+│   └── App.css           # 스타일
 ├── public/
-│   └── basic_img.jpeg    # 정적 파일용 캐릭터 이미지
+│   └── basic_img.jpeg    # 캐릭터 이미지 (264KB)
 ├── prototype.html        # Standalone 프로토타입
-├── basic_img.jpeg        # 프로토타입용 캐릭터 이미지
 ├── package.json          # 의존성 관리
 └── vite.config.js        # Vite 설정
 ```

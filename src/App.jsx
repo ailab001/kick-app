@@ -9,7 +9,7 @@ const C = {
   border: "#1A1A3E",
 };
 
-const SPRITE_IMG = "basic_img.jpeg";
+const SPRITE_IMG = "/basic_img.jpeg";
 const SPRITE_W = 868;
 const SPRITE_H = 1400;
 
